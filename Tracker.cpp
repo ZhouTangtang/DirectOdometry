@@ -534,6 +534,7 @@ bool Tracker::TrackNewFrame()
 	// 然后判断是否要插入新的关键帧
 	// 如果要插入新的关键帧的话就要重新提取点
 
+	Publish();
 	return true;
 }
 
@@ -611,4 +612,13 @@ bool Tracker::SmoothDepth()
 	}
 
 	return false;
+}
+
+ofstream ofs("output.txt");
+bool Tracker::Publish()
+{
+	ofs << setprecision(20) << curr_fs->time << " "
+		<< setprecision(20) << curr_fs->t_f_w(0) << " "
+		<< setprecision(20) << curr_fs->t_f_w(1) << " "
+		<< setprecision(20) << curr_fs->t_f_w(2) << " " << endl;
 }

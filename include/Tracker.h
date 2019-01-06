@@ -31,6 +31,7 @@ public:
 	bool MakeKeyFrame();
 	bool Detect(const FrameDatum& frame);
 	bool SmoothDepth();
+	bool Publish();
 
   private:
 	vector<FrameShell*> frame_buffer;
