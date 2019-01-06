@@ -3,7 +3,7 @@
 #include "Tracker.h"
 using namespace std;
 
-string img_stamp_path="/home/zhouyuxuan/data/mav0/cam0/data_3.csv";
+string img_stamp_path="/home/zhouyuxuan/data/mav0/cam0/data_2.csv";
 string img0_path="/home/zhouyuxuan/data/mav0/cam0/data";
 string img1_path="/home/zhouyuxuan/data/mav0/cam1/data";
 

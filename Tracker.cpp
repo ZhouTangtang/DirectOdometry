@@ -4,7 +4,9 @@
 #include <Eigen/Geometry>
 #include "tools.hpp"
 #include "PixelSelector2.h"
+#include "outer/point_nn.h"
 #include "outer/GLFWViewer.h"
+#include <list>
 
 using namespace Eigen;
 
@@ -41,9 +43,15 @@ bool Tracker::AddNewStereo(const cv::Mat & img_src, const cv::Mat & img_src_righ
 	curr_fs->id = FrameShell::next_id++;
 	curr_fs->time = time;
 	curr_fs->calib = new CalibDatum();
+	curr_fs->calib->a = 0;
+	curr_fs->calib->b = 0;
 	curr_fs->data = new FrameDatum(img_src);
 	curr_fs->data_right = new FrameDatum(img_src_right);
-	
+
+	curr_fs->R_w_f = Matrix3d::Identity();
+	curr_fs->t_f_w = Vector3d::Zero();
+	curr_fs->dR = Matrix3d::Identity();
+	curr_fs->dt = Vector3d::Zero();
 
 	cout << frame_buffer.size() << endl;
 	//cin.get();
@@ -109,6 +117,45 @@ bool Tracker::MakeKeyFrame()
 		{
 
 			Match_NCC(*(curr_fs->data), *(curr_fs->data_right), active_points[lvl],active_points_right[lvl], Parameter::K0, Parameter::K1, T01, lvl);
+			SmoothDepth();
+
+			//cv::Mat &image_top = curr_fs->data->imagePyramid[MAX_LEVEL - 1].color;
+			//cv::Mat &image_top_right = curr_fs->data_right->imagePyramid[MAX_LEVEL - 1].color;
+
+			// USELESS!
+			/*
+			for (int i = 0; i < active_points[lvl].size();i++)
+			{
+				auto &pt0 = active_points[lvl][i];
+				auto &pt1 = active_points_right[lvl][i];
+				double lvl_factor = pow(2, MAX_LEVEL-1);
+				double sum = 0;
+				if(pt0.is_good)
+				{
+					int u0_top = (int)(pt0.u / lvl_factor+0.5);
+					int v0_top = (int)(pt0.v / lvl_factor+0.5);
+					int u1_top = (int)(pt1.u / lvl_factor+0.5);
+					int v1_top = (int)(pt1.v / lvl_factor+0.5);
+
+					if(u0_top<2||u0_top>image_top.cols-3||v0_top<2||v0_top>image_top.rows-3)
+						continue;
+					for (int du = -2; du <= 2;du++)
+						for (int dv = -2; dv <= 2;dv++)
+						{
+							sum += powf(((float)image_top.at<uchar>(v0_top + dv, u0_top + du)
+							-(float)image_top_right.at<uchar>(v1_top + dv, u1_top + du)),2);
+						}
+					cout << "diff_sum:" << sum << endl;
+					if(sum>20000)
+					{
+						pt0.is_good = false;
+						pt1.is_good = false;
+					}
+				}
+			}
+			*/
+
+
 			cout << active_points[lvl].size() << " " << active_points_right[lvl].size() << endl;
 			for (int i = 0; i < active_points[lvl].size();i++)
 			{
@@ -137,6 +184,8 @@ bool Tracker::MakeKeyFrame()
 			MatrixXi count_lvl = MatrixXi::Zero(h, w);
 			for (int i = 0; i < active_points[lvl - 1].size();i++)
 			{
+				if (!active_points[lvl - 1][i].is_good)
+					continue;
 				float u = active_points[lvl - 1][i].u / 2;
 				float v = active_points[lvl - 1][i].v / 2;
 				float idepth = active_points[lvl - 1][i].idepth;
@@ -178,7 +227,6 @@ bool Tracker::MakeKeyFrame()
 		cout << active_points[i].size() << " ";
 	}
 	cout << endl;
-	//cin.get();
 	frame_buffer.push_back(curr_fs);
 
 	return true;
@@ -190,7 +238,7 @@ bool Tracker::Detect(const FrameDatum & frame)
 	float *map_out=new float[frame.imagePyramid[0].w*frame.imagePyramid[0].h];
 	memset(map_out,0,sizeof(float)*frame.imagePyramid[0].w*frame.imagePyramid[0].h);
 	cout<<1<<endl;
-	float densities[] = {0.01,0.05,0.15,0.5,1};
+	float densities[] = {0.002,0.05,0.15,0.5,1};
 	int npts=selector.makeMaps(&frame,map_out,densities[0],1,false,2);
 	cout<<"npts:"<<npts<<endl;
 	for(int x=0;x<frame.imagePyramid[0].w;x++)
@@ -225,23 +273,41 @@ bool Tracker::TrackNewFrame()
 	float a = 0;
 	float b = 0;
 
-	//  如果存在上一帧，并且上一帧不为关键帧
+	//  如果存在上一帧
+	//cout << "->" << endl;
 	if(prev_fs)
 	{
-			//cout << prev_fs->R_w_f << endl;
-
 		FrameShell *ref_fs = frame_buffer.back();
-		//curr_fs->R_w_f = R *frame_buffer.back()->R_w_f;
-
-		R = Quaterniond(prev_fs->R_w_f * ref_fs->R_w_f.transpose()).toRotationMatrix();
-
-		//curr_fs->t_f_w =frame_buffer.back()->t_f_w - curr_fs->R_w_f.transpose() * t;
-
-		t =  prev_fs->R_w_f*(ref_fs->t_f_w-prev_fs->t_f_w);
+		//cout << prev_fs->dR << endl
+		//	 << prev_fs->dt << endl;
+		//cin.get();
+		Matrix3d R_w_f = prev_fs->dR * prev_fs->R_w_f;
+		Vector3d t_f_w = prev_fs->t_f_w + prev_fs->dt;
+		//Matrix3d R_w_f = prev_fs->R_w_f;
+		//Vector3d t_f_w = prev_fs->t_f_w;
+		R = Quaterniond(R_w_f * ref_fs->R_w_f.transpose()).toRotationMatrix();
+		t = R_w_f * (ref_fs->t_f_w - t_f_w);
+		a = prev_fs->calib->a-ref_fs->calib->a;
+		b = prev_fs->calib->b-ref_fs->calib->b;
+		//cout << ref_fs->calib->a << " " << ref_fs->calib->b << endl;
 	}
+	/*
+	else if(frame_buffer.size()>0)
+	{
+		cout << "KeyFrame" << endl;
+		FrameShell *ref_fs = frame_buffer.back();
+		cout << ref_fs->dR << endl
+			 << ref_fs->dt << endl;
+		cin.get();
+		Matrix3d R_w_f = ref_fs->dR * Matrix3d::Identity();
+		Vector3d t_f_w = ref_fs->dt + Vector3d::Zero();
+		R = Quaterniond(R_w_f * ref_fs->R_w_f.transpose()).toRotationMatrix();
+		t = R_w_f * (ref_fs->t_f_w - t_f_w);
+	}
+	*/
+	
 	//cout << R << endl
 	//	 << t << endl;
-	
 
 	for (int lvl = MAX_LEVEL-1; lvl >= 0;lvl--)
 	{
@@ -250,17 +316,19 @@ bool Tracker::TrackNewFrame()
 		int count = 0;
 		int lvl_factor = pow(2, lvl);
 
-		cv::Mat img_new_show;
 
 		while (true /*未收敛*/)
 		{
+
+			cv::Mat img_new_show;
+
 			// 构建关于active_points的误差方程
 			// （当前来说是把上一关键帧的点投影到当前帧来构建）
 			int res_num = 0;
 			Matrix<double, 8, 8> JJ = Matrix<double, 8, 8>::Zero();
 			Matrix<double, 8, 1> Jr = Matrix<double, 8, 1>::Zero();
 
-			curr_fs->data->imagePyramid[lvl].color.copyTo(img_new_show);
+			//curr_fs->data->imagePyramid[lvl].color.copyTo(img_new_show);
 
 			// 目前只有最后关键帧有用。
 			FrameShell *ref_fs = frame_buffer.back();
@@ -271,9 +339,10 @@ bool Tracker::TrackNewFrame()
 
 			for (int i = 0; i < active_points[lvl].size(); i++)
 			{
-
+				
 				if (!active_points[lvl][i].is_good)
 					continue;
+				
 				for (int j = 0; j < PATTERN_NUM; j++)
 				{
 					double u0 = active_points[lvl][i].u + PATTERN_U[j];
@@ -291,12 +360,21 @@ bool Tracker::TrackNewFrame()
 
 					//cout << "u0 v0:" << u0 << " " << v0 << endl;
 					Vector3d pt2 = R * Parameter::K0.inverse() * Vector3d(u0 * lvl_factor, v0 * lvl_factor, 1) + t * idepth0;
+					/*
+					if(curr_fs->time>1403715380312143104.0/1e9-0.05)
+					{
+						cout << R << endl;
+						cout << t.transpose() << endl;
+						cout << pt2.transpose() << endl;
+						//cin.get();
+					}
+					*/
 					float x2 = pt2(0) / pt2(2);
 					float y2 = pt2(1) / pt2(2);
 					float idepth2 = idepth0 / pt2(2);
 					float u2 = (fx0 * x2 + cx0) / lvl_factor;
 					float v2 = (fy0 * y2 + cy0) / lvl_factor;
-					circle(img_new_show, Point2f(u2, v2), 0, cv::Scalar(0, 0, 0));
+					//circle(img_new_show, Point2f(u2, v2), 0, cv::Scalar(0, 0, 0));
 
 					if (u2 < (float)PADDING / lvl_factor || u2 > curr_fs->data->imagePyramid[lvl].w - (float)PADDING / lvl_factor - 1 ||
 						v2 < (float)PADDING / lvl_factor || v2 > curr_fs->data->imagePyramid[lvl].h - (float)PADDING / lvl_factor - 1)
@@ -304,7 +382,18 @@ bool Tracker::TrackNewFrame()
 						//active_points[lvl][i].is_good = false;
 						continue;
 					}
+					/*
+					if(curr_fs->time>1403715380312143104.0/1e9-0.05)
+					{
+						cout << i << endl;
+						cout << lvl << endl;
+						cout << u0 << " " << v0 << endl;
+						cout << u2 << " " << v2 << endl;
+						cout << idepth0 << endl;
+						cout << idepth2 << endl;
 
+					}
+					*/
 					float color_src = getColor(ref_fs->data->imagePyramid[lvl].color, u0, v0);
 					float color_hit = getColor(curr_fs->data->imagePyramid[lvl].color, u2, v2);
 					float grad_u = getGrad(curr_fs->data->imagePyramid[lvl].du, u2, v2);
@@ -338,7 +427,12 @@ bool Tracker::TrackNewFrame()
 					Jr += J.transpose() * hw * res;
 
 					//float dxdd = t(0) - t(1)
+					// 高层不用PATTERN
+					if(lvl>0)
+					break;
 				}
+
+				
 			}
 
 			if (DEBUG_THIS)
@@ -361,10 +455,10 @@ bool Tracker::TrackNewFrame()
 			Matrix<double, 8, 1> x = JJ.ldlt().solve(Jr);
 			if (DEBUG_THIS)
 				cout << x.transpose() << endl;
-			if (energy_new > energy_old || x.norm() < 0.00001 || count > 30 /*&&energy_new<150000*/)
+			if ((energy_new > energy_old && x.norm() < 0.00001) || count > 30 /*&&energy_new<150000*/)
 				break;
 
-			if (x.norm() > 1 && DEBUG_THIS) //WRONG SITUATION!
+			if (x.head<6>(0).norm() > 1 || DEBUG_THIS) //WRONG SITUATION!
 			{
 				cout << "JJ:" << endl;
 				cout << JJ << endl;
@@ -374,7 +468,7 @@ bool Tracker::TrackNewFrame()
 				cout << x << endl;
 				cout << energy_new << endl;
 
-				cin.get();
+				//cin.get();
 			}
 
 			x = -x;
@@ -386,19 +480,23 @@ bool Tracker::TrackNewFrame()
 			count++;
 			energy_old = energy_new;
 			energy_new = 0;
+	if(curr_fs->time>1403715360662142976/1e9-0.05)
+	{
+		//imshow("show", img_new_show);
+		//waitKey(500);
+	}
 	}
 	// FOR DEBUG
-	if(curr_fs->time>1403715349962142976.0/1e9-8&&lvl==0)
-	{
-		imshow("show", img_new_show);
-		waitKey(200);
-	}
+
 	}
 	
+	cout << "--a--b:" << a << " " << b << endl;
+
 
 	curr_fs->R_w_f = R *frame_buffer.back()->R_w_f;
-	curr_fs->t_f_w =frame_buffer.back()->t_f_w - curr_fs->R_w_f.transpose() * t;
-	
+	curr_fs->t_f_w = frame_buffer.back()->t_f_w - curr_fs->R_w_f.transpose() * t;
+	curr_fs->calib->a = frame_buffer.back()->calib->a+a;
+	curr_fs->calib->b = frame_buffer.back()->calib->b+b;;
 
 	Matrix4d T_f_w = Matrix4d::Identity();
 	T_f_w.block<3, 3>(0, 0) = curr_fs->R_w_f.transpose();
@@ -410,26 +508,107 @@ bool Tracker::TrackNewFrame()
 	viewer.SetFrames(v_Frames);
 	viewer.SetTrajectory(v_Trajectory);
 
+	// 惯性
+	if(prev_fs)
+	{
+	curr_fs->dR = curr_fs->R_w_f * prev_fs->R_w_f.transpose();
+	curr_fs->dt = curr_fs->t_f_w - prev_fs->t_f_w;
+	}
+
 	// 插入关键帧
 	count++;
-	if(count>20||t.norm()>0.3||Quaterniond(R).w()<cos(5.0/180*3.1415926))
+	// 经验
+	if(count>20||t.norm()>0.3||Quaterniond(R).w()<cos(5.0/180*3.1415926)||fabs(a)>0.02||fabs(b)>2)
 	{
 		cout << ">>>>count:" << count << endl;
 		MakeKeyFrame();
 		count = 0;
-		prev_fs = nullptr;
 	}
 	else
-	{
-		delete prev_fs;
-		prev_fs = curr_fs;
-	}
+		cout << ">>>plain frame!" << endl;
+	if(prev_fs!=frame_buffer.back()&&prev_fs!=*(frame_buffer.end()-2)) delete prev_fs;
+	prev_fs = curr_fs;
 
-	
 	// cin.get();
 	// cout << "t:"<<t.transpose() << endl;
 	// 然后判断是否要插入新的关键帧
 	// 如果要插入新的关键帧的话就要重新提取点
 
 	return true;
+}
+
+// 通过建立KD-Tree
+// 在每个点的领域内平滑/剔除点的深度
+// 希望可以借此来剔除密集重复纹理处的错误匹配
+bool Tracker::SmoothDepth()
+{
+	typedef KDTreeSingleIndexAdaptor<
+		L2_Simple_Adaptor<float, PointCloud2d<float> > ,
+		PointCloud2d<float>,
+		2 /* dim */
+		> my_kd_tree_t;
+	PointCloud2d<float> ptc2d;
+	AdaptPointDatum<float>(active_points[0], ptc2d);
+	cout << ptc2d.pts.size() << endl;
+	my_kd_tree_t   index(2 /*dim*/, ptc2d, KDTreeSingleIndexAdaptorParams(10 /* max leaf */) );
+	index.buildIndex();
+
+
+	for (int i = 0; i < ptc2d.pts.size();i++)
+	{
+		// Unsorted radius search:
+		const float radius = 60;
+		float query_pt[2] = {ptc2d.pts[i].x,ptc2d.pts[i].y};
+		std::vector<std::pair<size_t, float> > indices_dists;
+		RadiusResultSet<float,size_t> resultSet(radius, indices_dists);
+
+		index.findNeighbors(resultSet, query_pt, nanoflann::SearchParams());
+        //cout << "size:" << resultSet.size() << endl;
+        //cout << resultSet.m_indices_dists[0].first<<" "<<resultSet.m_indices_dists[0].second << endl;
+        // Get worst (furthest) point, without sorting:
+        //std::pair<size_t,float> worst_pair = resultSet.worst_item();
+		//cout << "Worst pair: idx=" << worst_pair.first << " dist=" << worst_pair.second << endl;
+
+		double vr = 0, ave = 0, ave_smooth = 0;
+		int smooth_count = 0;
+		for (int j = 0; j < resultSet.m_indices_dists.size(); j++)
+		{
+			ave += active_points[0][resultSet.m_indices_dists[j].first].idepth;
+			if(resultSet.m_indices_dists[j].second<radius/2)
+			{
+			ave_smooth+=active_points[0][resultSet.m_indices_dists[j].first].idepth;
+			smooth_count++;
+			}
+		}
+		ave /= indices_dists.size();
+		ave_smooth /= smooth_count;
+		for (int j = 0; j < resultSet.m_indices_dists.size(); j++)
+		{
+			vr += pow(active_points[0][resultSet.m_indices_dists[j].first].idepth - ave, 2);
+		}
+		vr /= indices_dists.size();
+		//cout << "nn_variance:" << vr << endl;
+		//cin.get();
+
+		// 方差过大——剔除
+		if(vr>0.002) 
+		{
+			for (int j = 0; j < resultSet.m_indices_dists.size(); j++)
+			{
+				active_points[0][resultSet.m_indices_dists[j].first].is_good = false;
+			}
+		} 
+		// 领域平滑
+		else
+		{
+			
+			for (int j = 0; j < resultSet.m_indices_dists.size(); j++)
+			{
+				active_points[0][resultSet.m_indices_dists[j].first].idepth = ave_smooth;
+			}
+			
+		}
+	}
+
+	return false;
 }

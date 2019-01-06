@@ -30,8 +30,9 @@ public:
 	bool TrackNewFrame();
 	bool MakeKeyFrame();
 	bool Detect(const FrameDatum& frame);
+	bool SmoothDepth();
 
-private:
+  private:
 	vector<FrameShell*> frame_buffer;
 	FrameShell *curr_fs = nullptr;
 	FrameShell *prev_fs = nullptr;

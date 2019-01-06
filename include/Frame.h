@@ -76,7 +76,11 @@ public:
 class FrameShell
 {
 public:
-	FrameShell() {};
+	FrameShell()
+	{
+		//dR = Matrix3d::Identity();
+		//dt = Vector3d::Zero();
+	};
 	~FrameShell() 
 	{ 
 		if(data) delete data;
@@ -93,6 +97,8 @@ public:
 
 	Matrix3d R_w_f;
 	Vector3d t_f_w;
+	Matrix3d dR;
+	Vector3d dt;
 	FrameDatum *data = nullptr;
 	FrameDatum* data_right=nullptr;
 	CalibDatum* calib=nullptr;

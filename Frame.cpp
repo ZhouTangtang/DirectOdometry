@@ -214,7 +214,7 @@ const Matrix4d &T01,const int lvl)
         // 如果附近NCC差别太小
         if(NCC_max<0.9|| (NCC_max-NCC_min)<0.1 || (NCC_max-NCC_second_max)<0.001) continue; 
         //cv::line(img1_show,Point2f(u1_min,v1),Point2f(u1_max,v1),Scalar(255));
-        cout << "NCC:" << NCC_max << " " << NCC_second_max << endl;
+        //cout << "NCC:" << NCC_max << " " << NCC_second_max << endl;
 
         //cv::circle(img0_show,Point2f(u,v),0,Scalar(0));
         //cv::circle(img1_show,Point2f(u1_match,v1),0,Scalar(0));
