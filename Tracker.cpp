@@ -157,7 +157,6 @@ bool Tracker::MakeKeyFrame()
 
 
 			cout << active_points[lvl].size() << " " << active_points_right[lvl].size() << endl;
-			//v_PointCloud.clear();
 			for (int i = 0; i < active_points[lvl].size();i++)
 			{
 				if(!active_points[lvl][i].is_good)
@@ -239,7 +238,7 @@ bool Tracker::Detect(const FrameDatum & frame)
 	float *map_out=new float[frame.imagePyramid[0].w*frame.imagePyramid[0].h];
 	memset(map_out,0,sizeof(float)*frame.imagePyramid[0].w*frame.imagePyramid[0].h);
 	cout<<1<<endl;
-	float densities[] = {0.001,0.05,0.15,0.5,1};
+	float densities[] = {0.002,0.05,0.15,0.5,1};
 	int npts=selector.makeMaps(&frame,map_out,densities[0],1,false,2);
 	cout<<"npts:"<<npts<<endl;
 	for(int x=0;x<frame.imagePyramid[0].w;x++)
@@ -593,7 +592,7 @@ bool Tracker::SmoothDepth()
 		//cin.get();
 
 		// 方差过大——剔除
-		if(vr>0.0001) 
+		if(vr>0.002) 
 		{
 			for (int j = 0; j < resultSet.m_indices_dists.size(); j++)
 			{
