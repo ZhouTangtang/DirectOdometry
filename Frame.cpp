@@ -127,6 +127,11 @@ const Matrix4d &T01,const int lvl)
 
 	const cv::Mat &img0_lvl = frame0.imagePyramid[lvl].color;
 	const cv::Mat &img1_lvl = frame1.imagePyramid[lvl].color;
+    const cv::Mat &img0_lvl_1 = frame0.imagePyramid[lvl+1].color;
+	const cv::Mat &img1_lvl_1 = frame1.imagePyramid[lvl+1].color;
+    const cv::Mat &img0_lvl_2 = frame0.imagePyramid[lvl+2].color;
+	const cv::Mat &img1_lvl_2 = frame1.imagePyramid[lvl+2].color;
+
 	double lvl_factor = pow(2, lvl);
 
 	for (int i = 0; i < pts0.size();i++)
@@ -141,11 +146,18 @@ const Matrix4d &T01,const int lvl)
 		getProjectUV(u, v, idepth0_max, K0,
 					 u1_max, v1_max, K1, T01, lvl_factor);
 
-		if(u<patchSize[1]+PADDING||u>img0_lvl.cols-patchSize[1]-PADDING-1
-		||v<patchSize[0]+PADDING||v>img0_lvl.rows-patchSize[0]-PADDING-1)
+		if(u/4<patchSize[1]+PADDING||u/4>img0_lvl_2.cols-patchSize[1]-PADDING-1
+		||v/4<patchSize[0]+PADDING||v/4>img0_lvl_2.rows-patchSize[0]-PADDING-1)
 						continue;
+        // temporary!!!!!!!!!!
+        //u /= 4;
+        //v /= 4;
+        //u1_min /= 4;
+        //u1_max /= 4;
+        //v1_min /= 4;
+        //v1_max /= 4;
 
-		// start searching...
+        // start searching...
         double NCC_max=0;
         double NCC_second_max = 0;
         double NCC_min=0;
@@ -154,16 +166,23 @@ const Matrix4d &T01,const int lvl)
 
         for(int u1=(int) u1_max;u1<(int)u1_min;u1++)
         {
-            if(u1<patchSize[1]+PADDING||u1>img0_lvl.cols-patchSize[1]-PADDING-1||v1<patchSize[0]+PADDING||v1>img0_lvl.rows-patchSize[0]-PADDING-1)
+            if(u1/4<patchSize[1]+PADDING||u1/4>img0_lvl_2.cols-patchSize[1]-PADDING-1||v1/4<patchSize[0]+PADDING||v1/4>img0_lvl_2.rows-patchSize[0]-PADDING-1)
 						continue;
 
             // calculate NCC
             double NCC=0;
-            double sum1=0,sum2=0,sum3=0;
-            double sum_c0=0;
-            double sum_c1=0;
-            double ave_c0;
-            double ave_c1;
+            double sum1 = 0, sum2 = 0, sum3 = 0;
+            double sum1_1 = 0, sum2_1 = 0, sum3_1 = 0;
+            double sum1_2 = 0, sum2_2 = 0, sum3_2 = 0;
+
+            double sum_c0 = 0, sum_c1 = 0;
+            double sum_c0_1 = 0, sum_c1_1 = 0;
+            double sum_c0_2 = 0, sum_c1_2 = 0;
+
+            double ave_c0, ave_c1;
+            double ave_c0_1, ave_c1_1;
+            double ave_c0_2, ave_c1_2;
+
             int patch_num=patchSize[0]*patchSize[1];
 
             //int count=0;
@@ -175,12 +194,30 @@ const Matrix4d &T01,const int lvl)
                 //count++;
                 double c0=(float)img0_lvl.at<uchar>(v+dv,u+du);
                 double c1=(float)img1_lvl.at<uchar>(v1+dv,u1+du);
-                //cout<<c0<<" "<<c1<<endl;
+
+                double c0_1=(float)img0_lvl_1.at<uchar>((int)(v/2+0.5)+dv,(int)(u/2+0.5)+du);
+                double c1_1=(float)img1_lvl_1.at<uchar>((int)(v1/2+0.5)+dv,(int)(u1/2+0.5)+du);
+
+                double c0_2=(float)img0_lvl_2.at<uchar>((int)(v/4+0.5)+dv,(int)(u/4+0.5)+du);
+                double c1_2=(float)img1_lvl_2.at<uchar>((int)(v1/4+0.5)+dv,(int)(u1/4+0.5)+du);
+
                 sum_c0+=c0;
                 sum_c1+=c1;
+
+                sum_c0_1+=c0_1;
+                sum_c1_1+=c1_1;
+
+                sum_c0_2+=c0_2;
+                sum_c1_2+=c1_2;
             }
             ave_c0=sum_c0/patch_num;
             ave_c1=sum_c1/patch_num;
+
+            ave_c0_1=sum_c0_1/patch_num;
+            ave_c1_1=sum_c1_1/patch_num;
+
+            ave_c0_2=sum_c0_2/patch_num;
+            ave_c1_2=sum_c1_2/patch_num;
 
             for(int du=-patch_du;du<=patch_du;du++)
             for(int dv=-patch_dv;dv<=patch_dv;dv++)
@@ -188,12 +225,32 @@ const Matrix4d &T01,const int lvl)
                 //count++;
                 double c0=(float)img0_lvl.at<uchar>(v+dv,u+du)-ave_c0;
                 double c1=(float)img1_lvl.at<uchar>(v1+dv,u1+du)-ave_c1;
+                double c0_1=(float)img0_lvl_1.at<uchar>((int)(v/2+0.5)+dv,(int)(u/2+0.5)+du)-ave_c0_1;
+                double c1_1=(float)img1_lvl_1.at<uchar>((int)(v1/2+0.5)+dv,(int)(u1/2+0.5)+du)-ave_c1_1;
+
+                double c0_2=(float)img0_lvl_2.at<uchar>((int)(v/4+0.5)+dv,(int)(u/4+0.5)+du)-ave_c0_2;
+                double c1_2=(float)img1_lvl_2.at<uchar>((int)(v1/4+0.5)+dv,(int)(u1/4+0.5)+du)-ave_c1_2;
+
                 sum1+=c0*c0;
                 sum2+=c1*c1;
                 sum3+=c0*c1;
+
+                sum1_1+=c0_1*c0_1;
+                sum2_1+=c1_1*c1_1;
+                sum3_1+=c0_1*c1_1;
+
+                sum1_2+=c0_2*c0_2;
+                sum2_2+=c1_2*c1_2;
+                sum3_2+=c0_2*c1_2;
+
+                
             }
             //cout<<(sum1)*(sum2)<<" ";
-            NCC=(sum3)/sqrt((sum1)*(sum2));
+            NCC=1*(sum3)/sqrt((sum1)*(sum2))
+            +0*(sum3_1)/sqrt((sum1_1)*(sum2_1))
+            +0*(sum3_2)/sqrt((sum1_2)*(sum2_2));
+            NCC /= 1;
+
             //cout<<NCC<<" ";
             //cin.get();
             if(NCC>NCC_max) 
@@ -215,7 +272,10 @@ const Matrix4d &T01,const int lvl)
         if(NCC_max<0.9|| (NCC_max-NCC_min)<0.1 || (NCC_max-NCC_second_max)<0.001) continue; 
         //cv::line(img1_show,Point2f(u1_min,v1),Point2f(u1_max,v1),Scalar(255));
         //cout << "NCC:" << NCC_max << " " << NCC_second_max << endl;
-
+        //u *= 4;
+        //v *= 4;
+        //u1_match *= 4;
+        //v1 *= 4;
         //cv::circle(img0_show,Point2f(u,v),0,Scalar(0));
         //cv::circle(img1_show,Point2f(u1_match,v1),0,Scalar(0));
         double idepth0=getRoughIdepth(u,v,u1_match,v1,K0,K1,T01,lvl_factor);
